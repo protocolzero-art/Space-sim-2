@@ -1,0 +1,63 @@
+name: Build AETHERIA-GR Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Build stage (0 = triangle test, 1 = black hole, 2 = cosmos)"
+        required: true
+        default: "0"
+        type: choice
+        options: ["0", "1", "2"]
+  push:
+    branches: [main]
+    paths:
+      - "AETHERIA-GR-corrected.zip"
+      - ".github/workflows/build_android.yml"
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_STAGE: ${{ github.event.inputs.stage || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract project ZIP into workspace
+        run: |
+          set -e
+          unzip -q AETHERIA-GR-corrected.zip -d /tmp/aetheria
+          cp -a /tmp/aetheria/AETHERIA-GR/. .
+          test -f CMakeLists.txt
+          test -f android/app/build.gradle
+          test -f shaders/stage0_triangle.vert
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android build tools
+        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1" "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Fetch SDL3 Java bridge
+        run: |
+          git clone --depth 1 --branch release-3.2.8 https://github.com/libsdl-org/SDL.git /tmp/sdl3
+          mkdir -p android/app/src/main/sdl-java
+          cp -r /tmp/sdl3/android-project/app/src/main/java/* android/app/src/main/sdl-java/
+
+      - name: Build APK
+        run: |
+          cd android
+          gradle assembleRelease -PaetheriaStage="${BUILD_STAGE}" --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AETHERIA-GR-Stage${{ env.BUILD_STAGE }}-Android-arm64
+          path: android/app/build/outputs/apk/release/app-release.apk
